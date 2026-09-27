@@ -1,0 +1,22 @@
+[Unit]
+Description=LaptopGuard anti-theft security agent
+After=display-manager.service NetworkManager.service
+Wants=NetworkManager.service
+
+[Service]
+Type=simple
+User=root
+UMask=0077
+ExecStart=/usr/local/bin/laptopguard daemon
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+PrivateTmp=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths=/var/lib/laptopguard
+
+[Install]
+WantedBy=multi-user.target

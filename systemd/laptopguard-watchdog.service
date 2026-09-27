@@ -1,0 +1,7 @@
+[Unit]
+Description=LaptopGuard service watchdog
+
+[Service]
+Type=oneshot
+User=root
+ExecStart=/opt/laptopguard/app/scripts/watchdog.sh

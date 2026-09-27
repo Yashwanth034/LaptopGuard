@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -u
+if [[ "${1:-}" == "post" ]]; then
+  systemctl start --no-block laptopguard-resume.service >/dev/null 2>&1 || true
+fi

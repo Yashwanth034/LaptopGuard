@@ -1,0 +1,36 @@
+state_dir = "/var/lib/laptopguard"
+evidence_dir = "/var/lib/laptopguard/evidence"
+queue_dir = "/var/lib/laptopguard/queue"
+rate_limit_seconds = 180
+failed_auth_threshold = 3
+failed_auth_window_seconds = 120
+
+[mail]
+enabled = false
+host = "smtp.gmail.com"
+port = 465
+username = ""
+from_address = ""
+to_address = ""
+password_file = "/etc/laptopguard/smtp-password"
+use_ssl = true
+
+[capture]
+camera_index = -1
+auto_camera = true
+max_seconds = 5.0
+min_brightness = 45.0
+min_sharpness = 90.0
+require_face = true
+boost_brightness = 100
+capture_on_resume = false
+capture_on_boot = false
+
+[location]
+enabled = true
+allow_ip_fallback = true
+tracking_minutes = 360
+tracking_interval_seconds = 300
+auto_tracking_after_alert = false
+browser_geolocation_enabled = true
+browser_max_vpn_accuracy_m = 250.0

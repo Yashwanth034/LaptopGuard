@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+.audit-venv/
+.verify-venv/
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+
+# Local environment / secrets
+.env
+.env.*
+config.toml
+smtp-password
+ntfy-topic
+google-geolocation-key
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.keystore
+
+# LaptopGuard runtime/evidence artifacts
+*.lgq
+*.log
+*.sqlite
+*.sqlite3
+*.db
+evidence/
+queue/
+location-history.jsonl
+event-history.jsonl
+wifi-location-cache.json
+tamper-baseline.json
+queue.key
+
+# Captured media
+*.jpg
+*.jpeg
+*.png
+*.webp
+*.mp4

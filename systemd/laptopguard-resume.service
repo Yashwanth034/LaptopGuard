@@ -1,0 +1,13 @@
+[Unit]
+Description=LaptopGuard resume readiness and queued-alert retry
+After=suspend.target hibernate.target hybrid-sleep.target
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+ExecStart=/usr/local/bin/laptopguard event resume
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/var/lib/laptopguard

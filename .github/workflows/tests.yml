@@ -1,0 +1,30 @@
+name: Tests
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            python3-pytest \
+            python3-opencv \
+            python3-numpy \
+            python3-cryptography \
+            python3-gi \
+            gir1.2-gtk-3.0
+
+      - name: Run test suite
+        run: PYTHONPATH=src python3 -m pytest -q
