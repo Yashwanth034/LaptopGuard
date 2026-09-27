@@ -22,6 +22,7 @@ from .illumination import ScreenIlluminator
 from .mailer import send
 from .queue_store import EncryptedQueue
 from .push import is_enabled as push_is_enabled, read_topic, send_notification
+from .platform_support import hostname
 from .rate_limit import RateLimiter
 from .readiness import wait_for_hardware
 from .timeline import EventTimeline
@@ -241,7 +242,7 @@ class SecurityEngine:
         return {
             'event': event,
             'timestamp': datetime.now(timezone.utc).isoformat(),
-            'hostname': os.uname().nodename,
+            'hostname': hostname(),
             **timeline,
             'wifi_ssid': wifi,
             'evidence': {

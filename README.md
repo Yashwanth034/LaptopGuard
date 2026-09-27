@@ -1,10 +1,20 @@
 # LaptopGuard
 
-**Open-source Linux anti-theft and laptop security agent for Linux Mint and Ubuntu.**
+**Open-source laptop anti-theft evidence and recovery agent. Full automated protection on Linux Mint/Ubuntu, with a portable recovery mode for Windows and macOS.**
 
-LaptopGuard watches for specific physical-security events on a Linux laptop and collects useful recovery evidence only when those events occur. It can capture a quality-checked webcam photo, take a desktop screenshot when a graphical session is available, record Wi-Fi/network context, resolve the best trustworthy physical location available, and deliver an alert by SMTP email. If the network is unavailable, evidence is stored in an encrypted local queue and retried later.
+LaptopGuard collects useful recovery evidence while keeping credentials and runtime data on the protected computer. It can capture a quality-checked webcam photo, take a desktop screenshot when the OS permits it, resolve trustworthy physical location, record network context, deliver alerts by SMTP, and preserve offline evidence in an encrypted local queue for later retry.
 
-Current version: **v0.1.24**
+Current version: **v0.1.25**
+
+## Platform support
+
+| Platform | Support level | Available now |
+| --- | --- | --- |
+| Linux Mint / Ubuntu with systemd | **Full protection** | Failed-local-login trigger, protected lock/login-screen power-off handling, webcam and screenshot evidence, location, encrypted queue, SMTP/ntfy alerts, tracking, tamper monitoring, watchdog/resume integration, hardening audit |
+| Windows | **Portable mode** | Manual evidence test, webcam capture, desktop screenshot, location/browser geolocation, encrypted queue, SMTP delivery, tracking, flush, diagnostics |
+| macOS | **Portable mode** | Manual evidence test, webcam capture, desktop screenshot, location/browser geolocation, encrypted queue, SMTP delivery, tracking, flush, diagnostics |
+
+Windows and macOS portable mode does **not yet** install autonomous failed-login monitoring, protected power-off interception, Linux tamper rules, or systemd-style service hooks. Camera, screen-capture, and location features also depend on the OS privacy permissions granted to Python/Terminal and the browser. GitHub Actions runs portable smoke tests on both Windows and macOS so these platforms cannot silently regress.
 
 ## Why LaptopGuard
 
@@ -55,7 +65,9 @@ Credentials and runtime secrets are not stored in this repository. Installed con
 
 ## Install
 
-LaptopGuard currently targets **Linux Mint / Ubuntu-family systems using systemd** and Python 3.10+.
+LaptopGuard requires Python 3.10+.
+
+### Linux Mint / Ubuntu — full protection
 
 After cloning or downloading the repository:
 
@@ -72,7 +84,35 @@ sudo laptopguard doctor
 sudo laptopguard test
 ```
 
-The installer preserves existing `/etc/laptopguard` configuration and `/var/lib/laptopguard` runtime state during normal upgrades.
+The Linux installer preserves existing `/etc/laptopguard` configuration and `/var/lib/laptopguard` runtime state during normal upgrades.
+
+### Windows — portable mode
+
+From PowerShell in the repository folder:
+
+```powershell
+py -m pip install .
+laptopguard configure
+laptopguard doctor
+laptopguard test
+```
+
+Runtime data is stored under `%LOCALAPPDATA%\LaptopGuard`. Windows may ask for Camera and screen-capture permissions when those features are first used.
+
+### macOS — portable mode
+
+From Terminal in the repository folder:
+
+```bash
+python3 -m pip install .
+laptopguard configure
+laptopguard doctor
+laptopguard test
+```
+
+Runtime data is stored under `~/Library/Application Support/LaptopGuard`. Grant Terminal/Python Camera and Screen Recording permissions when macOS requests them.
+
+On Windows/macOS, `laptopguard daemon` can keep queue retry and temporary location tracking active in the current user session. Automatic OS security-event hooks are currently Linux-only.
 
 ## Optional ntfy backup alerts
 
@@ -170,7 +210,7 @@ sudo bash uninstall.sh --purge
 PYTHONPATH=src python3 -m pytest -q
 ```
 
-The v0.1.24 public-source audit passes **156 tests**.
+The v0.1.25 Linux regression suite passes **159 tests** with 2 non-Linux-only smoke tests skipped; Windows and macOS run their portable smoke suite separately in GitHub Actions.
 
 More documentation:
 

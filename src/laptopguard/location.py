@@ -15,10 +15,11 @@ import urllib.request
 from typing import Callable
 
 from .network import VpnState, detect_vpn, internet_available
+from .platform_support import IS_LINUX, default_google_key_path
 
 
-USER_AGENT = 'LaptopGuard/0.1.24'
-DEFAULT_GOOGLE_KEY_FILE = Path('/etc/laptopguard/google-geolocation-key')
+USER_AGENT = 'LaptopGuard/0.1.25'
+DEFAULT_GOOGLE_KEY_FILE = default_google_key_path()
 
 
 @dataclass(frozen=True)
@@ -675,14 +676,14 @@ def collect_location(
     sample = geoclue_provider()
     if sample and (not vpn.active or (sample.accuracy_m is not None and sample.accuracy_m <= 500)):
         return LocationSample(**{**asdict(sample.normalized()), 'vpn_detected': vpn.active})
-    if vpn.active and browser_enabled and online:
-        provider = browser_provider or (lambda: browser_geolocation(browser_max_vpn_accuracy_m, vpn_active=True))
+    if browser_enabled and online and (vpn.active or not IS_LINUX):
+        provider = browser_provider or (lambda: browser_geolocation(browser_max_vpn_accuracy_m, vpn_active=vpn.active))
         try:
             sample = provider()
         except Exception:
             sample = None
-        if sample and (sample.accuracy_m is not None and sample.accuracy_m <= browser_max_vpn_accuracy_m):
-            normalized = LocationSample(**{**asdict(sample.normalized()), 'vpn_detected': True})
+        if sample and (not vpn.active or (sample.accuracy_m is not None and sample.accuracy_m <= browser_max_vpn_accuracy_m)):
+            normalized = LocationSample(**{**asdict(sample.normalized()), 'vpn_detected': vpn.active})
             if cache_path is not None:
                 if not points:
                     points = wifi_points_provider()

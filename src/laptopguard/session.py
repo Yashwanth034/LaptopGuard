@@ -3,10 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import os
-import pwd
 import shutil
 import subprocess
+import tempfile
 from typing import Callable
+
+try:
+    import pwd
+except ImportError:  # Windows
+    pwd = None
+
+from .platform_support import IS_LINUX, IS_MACOS, IS_WINDOWS, current_user
 
 
 @dataclass(frozen=True)
@@ -21,10 +28,10 @@ class ActiveSession:
     wayland_display: str = ''
 
     def environment(self) -> dict[str, str]:
-        env = {
-            'XDG_RUNTIME_DIR': self.runtime_dir,
-            'DBUS_SESSION_BUS_ADDRESS': f'unix:path={self.runtime_dir}/bus',
-        }
+        env: dict[str, str] = {}
+        if self.session_type in {'x11', 'wayland'}:
+            env['XDG_RUNTIME_DIR'] = self.runtime_dir
+            env['DBUS_SESSION_BUS_ADDRESS'] = f'unix:path={self.runtime_dir}/bus'
         if self.display:
             env['DISPLAY'] = self.display
         if self.xauthority:
@@ -60,6 +67,10 @@ def parse_loginctl_sessions(rows: list[dict]) -> ActiveSession | None:
 
 
 def active_session(runner: Callable = subprocess.run) -> ActiveSession | None:
+    if not IS_LINUX:
+        session_type = 'windows' if IS_WINDOWS else ('aqua' if IS_MACOS else 'desktop')
+        uid = getattr(os, 'getuid', lambda: 0)()
+        return ActiveSession('current', current_user(), int(uid), session_type, '', tempfile.gettempdir())
     if not shutil.which('loginctl'):
         return None
     try:
@@ -108,5 +119,9 @@ def active_session(runner: Callable = subprocess.run) -> ActiveSession | None:
 
 
 def run_as_session(session: ActiveSession, command: list[str], runner: Callable = subprocess.run, timeout: int = 10):
-    env_args = [f'{k}={v}' for k, v in session.environment().items()]
-    return runner(['runuser', '-u', session.user, '--', 'env', *env_args, *command], capture_output=True, timeout=timeout, check=False)
+    if IS_LINUX:
+        env_args = [f'{k}={v}' for k, v in session.environment().items()]
+        return runner(['runuser', '-u', session.user, '--', 'env', *env_args, *command], capture_output=True, timeout=timeout, check=False)
+    env = os.environ.copy()
+    env.update(session.environment())
+    return runner(command, capture_output=True, timeout=timeout, check=False, env=env)

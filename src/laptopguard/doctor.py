@@ -14,6 +14,7 @@ from .config import Settings
 from .location import hardware_gps, wifi_access_points
 from .mailer import probe as probe_mail
 from .network import detect_vpn
+from .platform_support import IS_LINUX, IS_MACOS, IS_WINDOWS, platform_name
 from .queue_store import EncryptedQueue
 from .session import active_session
 
@@ -74,7 +75,78 @@ def _shutdown_guard_capability_check() -> DoctorCheck:
     return DoctorCheck('Lock-screen shutdown guard', True, detail)
 
 
+def _portable_run(settings: Settings) -> list[DoctorCheck]:
+    checks: list[DoctorCheck] = [
+        DoctorCheck(
+            'Platform mode',
+            True,
+            f'{platform_name()} portable mode; Linux-only failed-login, systemd shutdown, and tamper hooks are disabled',
+        )
+    ]
+
+    cascade = _find_face_cascade()
+    checks.append(DoctorCheck('Face detector data', cascade is not None, str(cascade) if cascade else 'OpenCV Haar cascade data not found'))
+
+    session = active_session()
+    checks.append(DoctorCheck('Desktop session', session is not None, session.user if session else 'No current desktop session'))
+
+    if IS_WINDOWS:
+        helper = shutil.which('powershell') or shutil.which('pwsh')
+        detail = helper or 'PowerShell screenshot helper not found'
+    elif IS_MACOS:
+        helper = shutil.which('screencapture') or ('/usr/sbin/screencapture' if Path('/usr/sbin/screencapture').is_file() else None)
+        detail = helper or 'screencapture helper not found'
+    else:
+        helper = None
+        detail = 'Unsupported desktop platform'
+    checks.append(DoctorCheck('Screenshot capability', helper is not None, detail))
+
+    vpn = detect_vpn()
+    checks.append(DoctorCheck('VPN awareness', True, f'active={vpn.active}, interfaces={",".join(vpn.interfaces) or "none"}'))
+
+    browser_settings = load_browser_settings()
+    checks.append(DoctorCheck(
+        'Browser geolocation',
+        True,
+        f'configured for {browser_settings.user}' if browser_settings is not None else 'optional; run laptopguard browser-location-setup to enable',
+    ))
+
+    mail_ok = settings.mail.enabled and bool(settings.mail.to_address and settings.mail.username and settings.mail.password())
+    if mail_ok:
+        try:
+            probe_mail(settings.mail)
+            checks.append(DoctorCheck('SMTP authentication', True, settings.mail.to_address))
+        except Exception as exc:
+            checks.append(DoctorCheck('SMTP authentication', False, f'{type(exc).__name__}: {exc}'))
+    else:
+        checks.append(DoctorCheck('SMTP authentication', False, 'Run: laptopguard configure'))
+
+    state = Path(settings.state_dir)
+    try:
+        state.mkdir(parents=True, exist_ok=True)
+        writable = state.is_dir() and os.access(state, os.W_OK)
+    except OSError:
+        writable = False
+    checks.append(DoctorCheck('State directory', writable, str(state)))
+
+    if writable:
+        try:
+            queue = EncryptedQueue(Path(settings.queue_dir), state / 'queue.key')
+            corrupt = 0
+            for item in queue.items():
+                try:
+                    queue.read(item)
+                except Exception:
+                    corrupt += 1
+            checks.append(DoctorCheck('Encrypted queue health', corrupt == 0, f'{len(queue.items())} queued, {corrupt} corrupt'))
+        except Exception as exc:
+            checks.append(DoctorCheck('Encrypted queue health', False, str(exc)))
+    return checks
+
+
 def run(settings: Settings) -> list[DoctorCheck]:
+    if not IS_LINUX:
+        return _portable_run(settings)
     checks: list[DoctorCheck] = []
     cameras = sorted(Path('/dev').glob('video*'))
     camera_detail = (

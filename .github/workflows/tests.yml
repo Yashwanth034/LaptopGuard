@@ -28,3 +28,27 @@ jobs:
 
       - name: Run test suite
         run: PYTHONPATH=src python3 -m pytest -q
+
+  portable-smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install package and test dependency
+        run: python -m pip install --disable-pip-version-check -e . pytest
+
+      - name: Import portable runtime
+        run: python -c "import laptopguard.cli, laptopguard.daemon, laptopguard.doctor, laptopguard.evidence, laptopguard.location, laptopguard.timeline"
+
+      - name: Run portable smoke tests
+        run: python -m pytest -q tests/test_portable_mode.py

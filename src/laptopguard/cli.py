@@ -22,10 +22,21 @@ from .network import detect_vpn
 from .config import MailSettings
 from .validation import valid_email
 from .push import configure_topic, run_test as run_push_test
+from .platform_support import (
+    IS_LINUX,
+    current_user,
+    default_config_path,
+    default_evidence_dir,
+    default_queue_dir,
+    default_secret_path,
+    default_state_dir,
+    is_admin,
+    platform_name,
+)
 import tempfile
 
-DEFAULT_CONFIG = Path('/etc/laptopguard/config.toml')
-DEFAULT_SECRET = Path('/etc/laptopguard/smtp-password')
+DEFAULT_CONFIG = default_config_path()
+DEFAULT_SECRET = default_secret_path()
 
 
 def _ask(prompt: str, default: str = '') -> str:
@@ -34,8 +45,17 @@ def _ask(prompt: str, default: str = '') -> str:
     return value or default
 
 
+def _running_as_admin() -> bool:
+    geteuid = getattr(os, 'geteuid', None)
+    return bool(geteuid() == 0) if callable(geteuid) else is_admin()
+
+
+def _portable_path(path: Path) -> str:
+    return str(path).replace('\\', '/')
+
+
 def configure(path: Path) -> int:
-    if os.geteuid() != 0 and str(path).startswith('/etc/'):
+    if IS_LINUX and not _running_as_admin() and str(path).startswith('/etc/'):
         print('Configuration under /etc requires root. Run: sudo laptopguard configure', file=sys.stderr)
         return 2
     host = _ask('SMTP host', 'smtp.gmail.com')
@@ -61,14 +81,18 @@ def configure(path: Path) -> int:
         except Exception as exc:
             print(f'SMTP authentication failed: {type(exc).__name__}: {exc}', file=sys.stderr)
             return 2
-    secret_path = DEFAULT_SECRET if str(path).startswith('/etc/') else path.with_name('smtp-password')
+    system_config = path == DEFAULT_CONFIG
+    secret_path = DEFAULT_SECRET if system_config else path.with_name('smtp-password')
+    state_dir = default_state_dir() if system_config else path.parent / 'state'
+    evidence_dir = default_evidence_dir() if system_config else path.parent / 'evidence'
+    queue_dir = default_queue_dir() if system_config else path.parent / 'queue'
     secret_path.parent.mkdir(parents=True, exist_ok=True)
     secret_path.write_text(password + '\n', encoding='utf-8')
     os.chmod(secret_path, 0o600)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(f'''state_dir = "/var/lib/laptopguard"
-evidence_dir = "/var/lib/laptopguard/evidence"
-queue_dir = "/var/lib/laptopguard/queue"
+    path.write_text(f'''state_dir = "{_portable_path(state_dir)}"
+evidence_dir = "{_portable_path(evidence_dir)}"
+queue_dir = "{_portable_path(queue_dir)}"
 rate_limit_seconds = 180
 failed_auth_threshold = 3
 failed_auth_window_seconds = 120
@@ -80,7 +104,7 @@ port = {port}
 username = "{username}"
 from_address = "{from_address}"
 to_address = "{to_address}"
-password_file = "{secret_path}"
+password_file = "{_portable_path(secret_path)}"
 use_ssl = true
 
 [capture]
@@ -105,18 +129,18 @@ browser_max_vpn_accuracy_m = 250.0
 ''', encoding='utf-8')
     os.chmod(path, 0o600)
     print(f'Wrote {path}')
-    if shutil_which('systemctl') and path == DEFAULT_CONFIG:
+    if IS_LINUX and shutil_which('systemctl') and path == DEFAULT_CONFIG:
         result = subprocess.run(['systemctl', 'enable', '--now', 'laptopguard.service', 'laptopguard-watchdog.timer'], check=False)
         if result.returncode == 0:
             print('LaptopGuard service and watchdog enabled and started.')
         else:
             print('Configuration saved, but systemd enable/start failed. Run: sudo laptopguard status', file=sys.stderr)
-    print('Run: sudo laptopguard test')
+    print('Run: sudo laptopguard test' if IS_LINUX else 'Run: laptopguard test')
     return 0
 
 
 def configure_push(path: Path, topic: str) -> int:
-    if os.geteuid() != 0:
+    if IS_LINUX and not _running_as_admin():
         print('Push configuration requires root. Run with sudo.', file=sys.stderr)
         return 2
     settings = load_config(path)
@@ -129,16 +153,19 @@ def configure_push(path: Path, topic: str) -> int:
     except OSError as exc:
         print(f'Could not save ntfy push configuration: {type(exc).__name__}', file=sys.stderr)
         return 2
-    print('ntfy topic saved securely. Run: sudo laptopguard test-push')
+    print('ntfy topic saved securely. Run: sudo laptopguard test-push' if IS_LINUX else 'ntfy topic saved securely. Run: laptopguard test-push')
     return 0
 
 
 def test_push(settings) -> int:
-    if os.geteuid() != 0:
+    if IS_LINUX and not _running_as_admin():
         print('Push test requires root. Run with sudo.', file=sys.stderr)
         return 2
     if run_push_test(settings):
-        print('ntfy test notification sent. Shutdown/reboot push is now enabled.')
+        if IS_LINUX:
+            print('ntfy test notification sent. Protected power-off push is now enabled.')
+        else:
+            print('ntfy test notification sent. Portable evidence alerts continue to use SMTP/queue delivery.')
         return 0
     print('ntfy test notification failed. Push remains disabled.', file=sys.stderr)
     return 1
@@ -150,7 +177,7 @@ def shutil_which(command: str) -> str | None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog='laptopguard', description='Linux laptop anti-theft evidence and recovery agent')
+    parser = argparse.ArgumentParser(prog='laptopguard', description='Laptop anti-theft evidence and recovery agent')
     parser.add_argument('--config', default=str(DEFAULT_CONFIG), help='configuration TOML path')
     parser.add_argument('--version', action='version', version=f'%(prog)s {__version__}')
     sub = parser.add_subparsers(dest='command', required=True)
@@ -171,7 +198,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser('browser-location-setup', help='one-time browser geolocation permission setup')
     tracking = sub.add_parser('tracking', help='control temporary location tracking')
     tracking.add_argument('action', choices=['on', 'off', 'status'])
-    sub.add_parser('status', help='show systemd service status')
+    sub.add_parser('status', help='show background-service status')
     return parser
 
 
@@ -184,14 +211,17 @@ def main(argv: list[str] | None = None) -> int:
         return configure_push(config_path, args.topic)
     if args.command == 'lock-watch-user':
         return run_user_lock_watch()
-    if args.command == 'test-push' and os.geteuid() != 0:
+    if args.command == 'test-push' and IS_LINUX and not _running_as_admin():
         print('Push test requires root. Run with sudo.', file=sys.stderr)
         return 2
     if args.command == 'browser-location-setup':
-        user = os.environ.get('SUDO_USER', '').strip()
-        if not user or user == 'root':
-            print('Run this from your logged-in desktop account with: sudo laptopguard browser-location-setup', file=sys.stderr)
-            return 2
+        if IS_LINUX:
+            user = os.environ.get('SUDO_USER', '').strip()
+            if not user or user == 'root':
+                print('Run this from your logged-in desktop account with: sudo laptopguard browser-location-setup', file=sys.stderr)
+                return 2
+        else:
+            user = current_user()
         print('A dedicated browser window will open once. Click Allow location and approve the browser permission prompt.')
         configured, result = setup_browser_location(user)
         if configured is None:
@@ -217,12 +247,18 @@ def main(argv: list[str] | None = None) -> int:
             print(f'[{tag}] {check.name}: {check.detail}')
         return 0 if bad == 0 else 1
     if args.command == 'hardening-audit':
+        if not IS_LINUX:
+            print(f'Hardening audit is currently Linux-specific; {platform_name()} portable mode does not modify OS security settings.')
+            return 0
         for check in hardening_audit():
             tag = 'OK' if check.ok is True else ('WARN' if check.ok is False else 'UNKNOWN')
             print(f'[{tag}] {check.name}: {check.detail}')
         return 0
     if args.command == 'status':
-        return subprocess.run(['systemctl', '--no-pager', '--full', 'status', 'laptopguard.service'], check=False).returncode
+        if IS_LINUX and shutil_which('systemctl'):
+            return subprocess.run(['systemctl', '--no-pager', '--full', 'status', 'laptopguard.service'], check=False).returncode
+        print(f'LaptopGuard portable mode on {platform_name()}: run `laptopguard daemon` in the user session for queue/tracking support.')
+        return 0
     if args.command == 'location-test':
         vpn = detect_vpn()
         sample = collect_location(allow_ip=settings.location.allow_ip_fallback, cache_path=Path(settings.state_dir) / 'wifi-location-cache.json', browser_max_vpn_accuracy_m=settings.location.browser_max_vpn_accuracy_m, browser_enabled=settings.location.browser_geolocation_enabled)

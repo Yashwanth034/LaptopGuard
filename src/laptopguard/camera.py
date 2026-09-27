@@ -9,6 +9,7 @@ from typing import Callable, Iterable
 
 import cv2
 
+from .platform_support import IS_LINUX
 from .quality import FrameMetrics, acceptable
 
 
@@ -86,6 +87,8 @@ def _probe_camera(index: int) -> bool:
 
 
 def camera_indices() -> list[int]:
+    if not IS_LINUX:
+        return list(range(5))
     out = []
     for path in sorted(Path('/dev').glob('video*')):
         suffix = path.name.removeprefix('video')

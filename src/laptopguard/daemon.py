@@ -11,6 +11,7 @@ from .boot_marker import BootMarker, current_boot_id
 from .config import Settings
 from .engine import SecurityEngine
 from .monitor import journal_lines, suspicious_from_line
+from .platform_support import IS_LINUX
 from .tamper import CRITICAL_PATHS, MAINTENANCE_MARKER, TamperBaseline
 
 
@@ -79,16 +80,19 @@ def run(settings: Settings) -> None:
     engine = SecurityEngine(settings)
     state_dir = Path(settings.state_dir)
     stop = threading.Event()
-    watcher = threading.Thread(target=_watch_auth, args=(engine, stop), name='laptopguard-auth', daemon=True)
-    watcher.start()
-    shutdown_guard = _start_shutdown_guard()
+    watcher = None
+    shutdown_guard = None
+    if IS_LINUX:
+        watcher = threading.Thread(target=_watch_auth, args=(engine, stop), name='laptopguard-auth', daemon=True)
+        watcher.start()
+        shutdown_guard = _start_shutdown_guard()
 
     marker = BootMarker(state_dir / 'last-boot-id')
     if marker.is_new(current_boot_id()):
         engine.handle_event('boot')
 
-    tamper = TamperBaseline(state_dir / 'tamper-baseline.json', CRITICAL_PATHS)
-    if _tamper_changes(tamper):
+    tamper = TamperBaseline(state_dir / 'tamper-baseline.json', CRITICAL_PATHS) if IS_LINUX else None
+    if tamper is not None and _tamper_changes(tamper):
         engine.handle_event('tamper')
     next_flush = 0.0
     next_tamper = time.monotonic() + 300
@@ -106,12 +110,12 @@ def run(settings: Settings) -> None:
                 if engine.tracking_active():
                     engine.send_location_update()
                 next_location = now + max(60, settings.location.tracking_interval_seconds)
-            if now >= next_tamper:
+            if IS_LINUX and tamper is not None and now >= next_tamper:
                 changes = _tamper_changes(tamper)
                 if changes:
                     engine.handle_event('tamper')
                 next_tamper = now + 300
-            if now >= next_shutdown_guard_check:
+            if IS_LINUX and now >= next_shutdown_guard_check:
                 if shutdown_guard is None or shutdown_guard.poll() is not None:
                     shutdown_guard = _start_shutdown_guard()
                 next_shutdown_guard_check = now + 60

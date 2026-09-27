@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .platform_support import boot_identifier
+
 
 class BootMarker:
     def __init__(self, path: Path):
@@ -17,5 +19,4 @@ class BootMarker:
 
 
 def current_boot_id() -> str:
-    path = Path('/proc/sys/kernel/random/boot_id')
-    return path.read_text(encoding='utf-8').strip() if path.is_file() else 'unknown'
+    return boot_identifier()

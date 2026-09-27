@@ -1,18 +1,26 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import fcntl
 import os
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None
+
+try:
+    import msvcrt
+except ImportError:
+    msvcrt = None
 from pathlib import Path
 import time
 from typing import Callable
 
+from .platform_support import boot_identifier
+
 
 def current_boot_id() -> str:
-    try:
-        return Path('/proc/sys/kernel/random/boot_id').read_text(encoding='utf-8').strip()
-    except OSError:
-        return 'unknown'
+    return boot_identifier()
 
 
 class EventTimeline:
@@ -25,9 +33,20 @@ class EventTimeline:
 
     def next(self) -> dict:
         fd = os.open(self.counter, os.O_RDWR | os.O_CREAT, 0o600)
-        try:
-            with os.fdopen(fd, 'r+', encoding='utf-8') as fh:
+        with os.fdopen(fd, 'r+', encoding='utf-8') as fh:
+            windows_lock = False
+            if fcntl is not None:
                 fcntl.flock(fh, fcntl.LOCK_EX)
+            elif msvcrt is not None:
+                fh.seek(0, os.SEEK_END)
+                if fh.tell() == 0:
+                    fh.write('0')
+                    fh.flush()
+                fh.seek(0)
+                msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+                windows_lock = True
+            try:
+                fh.seek(0)
                 raw = fh.read().strip()
                 sequence = int(raw or '0') + 1
                 fh.seek(0)
@@ -35,8 +54,10 @@ class EventTimeline:
                 fh.write(str(sequence))
                 fh.flush()
                 os.fsync(fh.fileno())
-        finally:
-            pass
+            finally:
+                if windows_lock:
+                    fh.seek(0)
+                    msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
         return {
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'sequence': sequence,

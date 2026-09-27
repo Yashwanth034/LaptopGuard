@@ -6,8 +6,8 @@ ROOT = Path(__file__).parent
 
 setup(
     name="laptopguard",
-    version="0.1.24",
-    description="Linux anti-theft and laptop security agent for Linux Mint and Ubuntu",
+    version="0.1.25",
+    description="Laptop anti-theft evidence and recovery agent with full Linux protection and Windows/macOS portable mode",
     long_description=(ROOT / "README.md").read_text(encoding="utf-8"),
     long_description_content_type="text/markdown",
     license="MIT",
@@ -17,6 +17,8 @@ setup(
         "laptop-security",
         "linux-mint",
         "ubuntu",
+        "windows",
+        "macos",
         "systemd",
         "geolocation",
         "webcam",
@@ -28,6 +30,8 @@ setup(
         "Intended Audience :: End Users/Desktop",
         "License :: OSI Approved :: MIT License",
         "Operating System :: POSIX :: Linux",
+        "Operating System :: MacOS",
+        "Operating System :: Microsoft :: Windows",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3 :: Only",
         "Topic :: Security",

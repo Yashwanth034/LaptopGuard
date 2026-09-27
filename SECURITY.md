@@ -2,7 +2,7 @@
 
 ## Supported version
 
-The current supported public source release is **v0.1.24**. Security fixes should be evaluated against the latest commit on the default branch.
+The current supported public source release is **v0.1.25**. Security fixes should be evaluated against the latest commit on the default branch.
 
 ## Reporting a vulnerability
 

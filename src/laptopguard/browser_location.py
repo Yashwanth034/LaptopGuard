@@ -5,8 +5,12 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 import json
 import os
 from pathlib import Path
-import pwd
 import secrets
+
+try:
+    import pwd
+except ImportError:  # Windows
+    pwd = None
 import signal
 import shutil
 import subprocess
@@ -15,9 +19,10 @@ import time
 from typing import Callable
 from urllib.parse import parse_qs, urlparse
 
+from .platform_support import IS_LINUX, IS_MACOS, IS_WINDOWS, current_user, default_browser_settings_path
 from .session import ActiveSession, active_session
 
-DEFAULT_SETTINGS_FILE = Path('/etc/laptopguard/browser-location.json')
+DEFAULT_SETTINGS_FILE = default_browser_settings_path()
 DEFAULT_PORT = 8765
 
 
@@ -55,11 +60,34 @@ def load_browser_settings(path: Path = DEFAULT_SETTINGS_FILE) -> BrowserLocation
 
 
 def find_browser() -> str | None:
-    for name in ('google-chrome-stable', 'google-chrome', 'chromium', 'chromium-browser', 'brave-browser', 'brave'):
+    names = ['google-chrome-stable', 'google-chrome', 'chromium', 'chromium-browser', 'brave-browser', 'brave']
+    if IS_WINDOWS:
+        names = ['chrome.exe', 'msedge.exe', 'brave.exe', *names]
+    for name in names:
         path = shutil.which(name)
         if path:
             return path
-    return None
+    candidates: list[Path] = []
+    if IS_WINDOWS:
+        roots = [
+            os.environ.get('PROGRAMFILES'),
+            os.environ.get('PROGRAMFILES(X86)'),
+            os.environ.get('LOCALAPPDATA'),
+        ]
+        for root in [Path(value) for value in roots if value]:
+            candidates.extend([
+                root / 'Google' / 'Chrome' / 'Application' / 'chrome.exe',
+                root / 'Microsoft' / 'Edge' / 'Application' / 'msedge.exe',
+                root / 'BraveSoftware' / 'Brave-Browser' / 'Application' / 'brave.exe',
+            ])
+    elif IS_MACOS:
+        candidates.extend([
+            Path('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
+            Path('/Applications/Chromium.app/Contents/MacOS/Chromium'),
+            Path('/Applications/Brave Browser.app/Contents/MacOS/Brave Browser'),
+            Path('/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge'),
+        ])
+    return str(next((path for path in candidates if path.is_file()), '')) or None
 
 
 def accept_browser_fix(sample, vpn_active: bool, max_vpn_accuracy_m: float = 250.0):
@@ -164,7 +192,6 @@ def _browser_command(
     background: bool,
     session: ActiveSession | None = None,
 ) -> list[str]:
-    info = pwd.getpwnam(settings.user)
     browser_args = [
         settings.browser,
         '--app=' + url,
@@ -173,21 +200,26 @@ def _browser_command(
         '--no-default-browser-check',
         '--disable-sync',
     ]
-    env = {
-        'HOME': info.pw_dir,
-        'USER': settings.user,
-        'LOGNAME': settings.user,
-    }
     if background:
         if session is None or session.user != settings.user:
             raise RuntimeError('No matching active graphical session for browser location')
-        env.update(session.environment())
         browser_args += [
             '--start-minimized',
             '--window-size=320,240',
             '--window-position=-32000,-32000',
             '--disable-notifications',
         ]
+    if not IS_LINUX:
+        return browser_args
+
+    info = pwd.getpwnam(settings.user)
+    env = {
+        'HOME': info.pw_dir,
+        'USER': settings.user,
+        'LOGNAME': settings.user,
+    }
+    if background and session is not None:
+        env.update(session.environment())
     else:
         runtime = Path(f'/run/user/{info.pw_uid}')
         if runtime.is_dir():
@@ -198,8 +230,15 @@ def _browser_command(
 
 
 def _prepare_profile(settings: BrowserLocationSettings) -> None:
-    info = pwd.getpwnam(settings.user)
     profile = Path(settings.profile_dir)
+    if not IS_LINUX:
+        profile.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(profile, 0o700)
+        except OSError:
+            pass
+        return
+    info = pwd.getpwnam(settings.user)
     for directory in (profile.parent.parent, profile.parent, profile):
         if not directory.exists():
             directory.mkdir(exist_ok=True)
@@ -221,29 +260,46 @@ def _run_browser_probe(settings: BrowserLocationSettings, setup: bool, timeout: 
             if session is None or session.user != settings.user:
                 return {'error': 'No matching active graphical session for browser location'}
         command = _browser_command(settings, server.url(setup), background=not setup, session=session)
-        proc = popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+        popen_kwargs = {'stdout': subprocess.DEVNULL, 'stderr': subprocess.DEVNULL}
+        if not IS_WINDOWS:
+            popen_kwargs['start_new_session'] = True
+        proc = popen(command, **popen_kwargs)
         server.done.wait(timeout)
         return server.result
     finally:
         server.shutdown()
         server.server_close()
         if proc is not None:
-            try:
-                os.killpg(proc.pid, signal.SIGTERM)
-                proc.wait(timeout=3)
-            except Exception:
+            if IS_WINDOWS:
                 try:
-                    os.killpg(proc.pid, signal.SIGKILL)
+                    proc.terminate()
+                    proc.wait(timeout=3)
                 except Exception:
-                    pass
+                    try:
+                        proc.kill()
+                    except Exception:
+                        pass
+            else:
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)
+                    proc.wait(timeout=3)
+                except Exception:
+                    try:
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    except Exception:
+                        pass
 
 
 def setup_browser_location(user: str, settings_path: Path = DEFAULT_SETTINGS_FILE, timeout: float = 45.0) -> tuple[BrowserLocationSettings | None, dict | None]:
     browser = find_browser()
     if not browser:
-        return None, {'error': 'No supported Chrome/Chromium/Brave browser found'}
-    info = pwd.getpwnam(user)
-    profile = Path(info.pw_dir) / '.local' / 'share' / 'laptopguard-location-browser'
+        return None, {'error': 'No supported Chrome/Chromium/Brave/Edge browser found'}
+    user = user or current_user()
+    if IS_LINUX:
+        info = pwd.getpwnam(user)
+        profile = Path(info.pw_dir) / '.local' / 'share' / 'laptopguard-location-browser'
+    else:
+        profile = default_browser_settings_path().parent / 'location-browser-profile'
     settings = BrowserLocationSettings(user, browser, str(profile), DEFAULT_PORT)
     try:
         result = _run_browser_probe(settings, setup=True, timeout=timeout)

@@ -13,6 +13,7 @@ import tempfile
 from typing import Callable
 
 from .network import snapshot as network_snapshot
+from .platform_support import IS_LINUX, IS_MACOS, IS_WINDOWS, hostname
 from .session import active_session, run_as_session
 
 
@@ -64,28 +65,48 @@ def capture_screenshot(output: Path, session_provider: Callable = active_session
         return None
     try:
         temp_dir = Path(tempfile.mkdtemp(prefix='laptopguard-screenshot-'))
-        os.chown(temp_dir, session.uid, session.uid)
+        if hasattr(os, 'chown') and getattr(os, 'geteuid', lambda: -1)() == 0:
+            os.chown(temp_dir, session.uid, session.uid)
         temp_dir.chmod(0o700)
     except OSError:
         return None
     source = temp_dir / 'screenshot.png'
     candidates = []
-    # On X11, scrot captures the root window without the visible flash that
-    # gnome-screenshot can produce. Keep gnome-screenshot as a fallback and as
-    # the primary option on Wayland, where scrot generally cannot capture.
-    if session.session_type == 'x11' and shutil.which('scrot'):
-        candidates.append(['scrot', str(source)])
-    if shutil.which('gnome-screenshot'):
-        candidates.append(['gnome-screenshot', '-f', str(source)])
-    if shutil.which('scrot') and session.session_type != 'x11':
-        candidates.append(['scrot', str(source)])
-    if shutil.which('import') and session.session_type == 'x11':
-        candidates.append(['import', '-window', 'root', str(source)])
+    if IS_WINDOWS:
+        shell = shutil.which('powershell') or shutil.which('pwsh')
+        if shell:
+            target = str(source).replace("'", "''")
+            script = (
+                "Add-Type -AssemblyName System.Windows.Forms; "
+                "Add-Type -AssemblyName System.Drawing; "
+                "$r=[System.Windows.Forms.SystemInformation]::VirtualScreen; "
+                "$b=New-Object System.Drawing.Bitmap $r.Width,$r.Height; "
+                "$g=[System.Drawing.Graphics]::FromImage($b); "
+                "$g.CopyFromScreen($r.Location,[System.Drawing.Point]::Empty,$r.Size); "
+                f"$b.Save('{target}',[System.Drawing.Imaging.ImageFormat]::Png); "
+                "$g.Dispose(); $b.Dispose()"
+            )
+            candidates.append([shell, '-NoProfile', '-NonInteractive', '-Command', script])
+    elif IS_MACOS:
+        helper = shutil.which('screencapture') or ('/usr/sbin/screencapture' if Path('/usr/sbin/screencapture').is_file() else None)
+        if helper:
+            candidates.append([helper, '-x', str(source)])
+    else:
+        # On X11, scrot captures the root window without the visible flash that
+        # gnome-screenshot can produce. Keep gnome-screenshot as a fallback and as
+        # the primary option on Wayland, where scrot generally cannot capture.
+        if session.session_type == 'x11' and shutil.which('scrot'):
+            candidates.append(['scrot', str(source)])
+        if shutil.which('gnome-screenshot'):
+            candidates.append(['gnome-screenshot', '-f', str(source)])
+        if shutil.which('scrot') and session.session_type != 'x11':
+            candidates.append(['scrot', str(source)])
+        if shutil.which('import') and session.session_type == 'x11':
+            candidates.append(['import', '-window', 'root', str(source)])
     try:
         for cmd in candidates:
             try:
-                env_args = [f'{k}={v}' for k, v in session.environment().items()]
-                result = runner(['runuser', '-u', session.user, '--', 'env', *env_args, *cmd], capture_output=True, timeout=10, check=False)
+                result = run_as_session(session, cmd, runner=runner, timeout=10)
                 if output.is_file() and output.stat().st_size > 0:
                     return output
                 if result.returncode == 0 and source.is_file() and source.stat().st_size > 0:
@@ -105,7 +126,7 @@ def base_metadata(event: str) -> dict:
     return {
         'event': event,
         'timestamp': datetime.now(timezone.utc).isoformat(),
-        'hostname': os.uname().nodename,
+        'hostname': hostname(),
         'username': session.user if session else 'login-screen',
         'session': asdict(session) if session else None,
         'wifi_ssid': active_ssid(),

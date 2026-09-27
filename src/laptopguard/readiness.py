@@ -6,9 +6,11 @@ import subprocess
 import time
 from typing import Callable
 
+from .platform_support import IS_LINUX
+
 
 def hardware_ready(runner: Callable = subprocess.run) -> bool:
-    if not list(Path('/dev').glob('video*')):
+    if IS_LINUX and not list(Path('/dev').glob('video*')):
         return False
     if shutil.which('nmcli'):
         try:

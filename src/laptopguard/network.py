@@ -3,8 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import shutil
+import socket
 import subprocess
 from typing import Callable
+
+from .platform_support import IS_LINUX
 
 
 @dataclass(frozen=True)
@@ -22,7 +25,7 @@ class NetworkSnapshot:
 
 def classify_interface(name: str) -> str:
     value = name.lower()
-    if value.startswith(('wg', 'tun', 'tap', 'tailscale', 'zt')):
+    if value.startswith(('wg', 'tun', 'tap', 'utun', 'ppp', 'ipsec', 'tailscale', 'zt')):
         return 'vpn'
     if value.startswith(('docker', 'br-', 'veth', 'virbr', 'lxc', 'podman')):
         return 'virtual'
@@ -69,6 +72,14 @@ def detect_vpn(runner: Callable = subprocess.run) -> VpnState:
                     types.add('tunnel')
         except Exception:
             pass
+    if not IS_LINUX:
+        try:
+            for _index, name in socket.if_nameindex():
+                if classify_interface(name) == 'vpn':
+                    interfaces.add(name)
+                    types.add('tunnel')
+        except Exception:
+            pass
     return VpnState(bool(interfaces or types), tuple(sorted(interfaces)), tuple(sorted(types)))
 
 
@@ -81,7 +92,13 @@ def internet_available(runner: Callable = subprocess.run) -> bool:
     providers.
     """
     if not shutil.which('nmcli'):
-        return False
+        if IS_LINUX:
+            return False
+        try:
+            with socket.create_connection(('1.1.1.1', 443), timeout=2):
+                return True
+        except OSError:
+            return False
     try:
         connectivity = runner(
             ['nmcli', '-t', '-f', 'CONNECTIVITY', 'general'],

@@ -2,6 +2,14 @@
 
 Release notes retained from the v0.1.x development series. Newer entries supersede older behavior where policies changed.
 
+## v0.1.25
+
+- Fixes screenshot capture under unprivileged CI/test environments without weakening the root-owned Linux runtime path.
+- Adds Windows and macOS portable mode for manual webcam/screenshot evidence, encrypted queueing, SMTP delivery, location/browser geolocation, tracking, flush, and diagnostics.
+- Adds platform-safe application-data/config paths, hostname/boot/session helpers, portable timeline locking, browser discovery, camera probing, and screenshot helpers.
+- Keeps Linux Mint/Ubuntu as the full-protection platform: failed-login monitoring, protected power-off hooks, Linux tamper rules, systemd integration, and hardening audit remain Linux-only.
+- Adds Windows/macOS GitHub Actions smoke coverage while retaining the complete Linux regression suite.
+
 ## v0.1.24
 
 - Fixes `sudo laptopguard hardening-audit` so GRUB PBKDF2 authentication configured in `/etc/grub.d/01_users` is detected correctly.

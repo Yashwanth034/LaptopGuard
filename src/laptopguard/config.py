@@ -2,6 +2,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from .platform_support import (
+    default_config_path,
+    default_evidence_dir,
+    default_push_topic_path,
+    default_queue_dir,
+    default_secret_path,
+    default_state_dir,
+)
+
 try:
     import tomllib
 except ModuleNotFoundError:
@@ -16,7 +26,7 @@ class MailSettings:
     username: str = ""
     from_address: str = ""
     to_address: str = ""
-    password_file: str = "/etc/laptopguard/smtp-password"
+    password_file: str = field(default_factory=lambda: str(default_secret_path()))
     use_ssl: bool = True
 
     def password(self) -> str:
@@ -26,7 +36,7 @@ class MailSettings:
 
 @dataclass(frozen=True)
 class PushSettings:
-    topic_file: str = "/etc/laptopguard/ntfy-topic"
+    topic_file: str = field(default_factory=lambda: str(default_push_topic_path()))
 
 
 @dataclass(frozen=True)
@@ -58,9 +68,9 @@ class Settings:
     mail: MailSettings = field(default_factory=MailSettings)
     capture: CaptureSettings = field(default_factory=CaptureSettings)
     location: LocationSettings = field(default_factory=LocationSettings)
-    state_dir: str = "/var/lib/laptopguard"
-    evidence_dir: str = "/var/lib/laptopguard/evidence"
-    queue_dir: str = "/var/lib/laptopguard/queue"
+    state_dir: str = field(default_factory=lambda: str(default_state_dir()))
+    evidence_dir: str = field(default_factory=lambda: str(default_evidence_dir()))
+    queue_dir: str = field(default_factory=lambda: str(default_queue_dir()))
     rate_limit_seconds: int = 180
     failed_auth_threshold: int = 3
     failed_auth_window_seconds: int = 120
@@ -136,8 +146,8 @@ def migrate_normal_lifecycle_policy(path: Path | str) -> bool:
         path.write_text("\n".join(lines) + ("\n" if text.endswith("\n") or lines else ""), encoding="utf-8")
     return changed
 
-def load_config(path: Path | str = "/etc/laptopguard/config.toml") -> Settings:
-    path = Path(path)
+def load_config(path: Path | str | None = None) -> Settings:
+    path = Path(path) if path is not None else default_config_path()
     data = tomllib.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
     root = {k: v for k, v in data.items() if k not in {"mail", "push", "capture", "location"}}
     return Settings(

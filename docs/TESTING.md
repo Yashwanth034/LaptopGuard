@@ -1,4 +1,4 @@
-# Real-device verification checklist — v0.1.24
+# Real-device verification checklist — v0.1.25
 
 ## Update and pre-flight
 
